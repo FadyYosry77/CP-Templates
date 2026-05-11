@@ -288,7 +288,7 @@ public:
     // sum/count in one version over [l,r]
     ll query(int root, int l, int r) {
         if(l > r)return 0;
-        l = max(l, 0);
+        l = max<ll>(l, 0);
         r = min(r, n - 1);
         if(l > r)return 0;
         return query(root, l, r, 0, n - 1);
@@ -323,7 +323,7 @@ public:
     // query value-id interval [l,r] on tree path
     ll path_query(int uroot, int vroot, int lcroot, int plcroot, int l, int r) {
         if(l > r)return 0;
-        l = max(l, 0);
+        l = max<ll>(l, 0);
         r = min(r, n - 1);
         if(l > r)return 0;
         return path_query(uroot, vroot, lcroot, plcroot, l, r, 0, n - 1);
@@ -475,7 +475,7 @@ ll count_between(vector<int>&roots, PersistentSegtree&pst, int l, int r,ll x,ll 
     if(left > right)return 0;
     if(left >= (int) comp.size() || right < 0)return 0;
 
-    left = max(left, 0);
+    left = max<ll>(left, 0);
     right = min(right, (int) comp.size() - 1);
 
     return pst.query(roots[r + 1], roots[l], left, right);
@@ -854,7 +854,6 @@ ll count_equal_on_path(
 
     return pst.path_query(roots[u], roots[v], roots[lc], roots[plc], id, id);
 }
-
 //====================================================
 // Example solve() with modes
 //====================================================
