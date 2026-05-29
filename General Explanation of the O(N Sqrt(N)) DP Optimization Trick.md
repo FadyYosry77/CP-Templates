@@ -1,14 +1,8 @@
 # The $O(N\sqrt{N})$ DP Trick for Partition Numbers
 
-This trick optimizes a two-dimensional DP from $O(N^2)$ to $O(N\sqrt{N})$.
+Use this optimization when your DP table has two coordinates, $n$ and $k$, and the transition moves in two regular directions.
 
-Define:
-
-$$
-DP[n][k]
-$$
-
-as the number of ways to form $n$ using exactly $k$ positive parts.
+For the partition DP, define $DP[n][k]$ as the number of partitions of $n$ into exactly $k$ positive parts.
 
 The standard recurrence is:
 
@@ -16,45 +10,23 @@ $$
 DP[n][k] = DP[n-1][k-1] + DP[n-k][k]
 $$
 
-The term $DP[n-1][k-1]$ handles the case where each part loses $1$.
+The first term, $DP[n-1][k-1]$, reduces each part by $1$.
 
-The term $DP[n-k][k]$ keeps the number of parts equal to $k$, and removes $1$ from each part.
+The second term, $DP[n-k][k]$, keeps the number of parts equal to $k$, and removes $1$ from each of the $k$ parts.
 
-A direct implementation fills all states $DP[n][k]$. This costs:
+A direct solution fills all states $DP[n][k]$ for $1 \le n \le N$ and $1 \le k \le N$. This costs:
 
 $$
 O(N^2)
 $$
 
-The goal is to compute the same result in:
-
-$$
-O(N\sqrt{N})
-$$
-
-## Split the DP Table
-
-Choose:
+The optimization starts by splitting the DP table at:
 
 $$
 B = \lfloor \sqrt{N} \rfloor
 $$
 
-Split the table into two regions.
-
-The first region is:
-
-$$
-k < B
-$$
-
-The second region is:
-
-$$
-k \ge B
-$$
-
-For $k < B$, compute the DP directly.
+For small values of $k$, meaning $k < B$, compute the DP normally.
 
 This region has $B$ columns and $N$ rows, so its cost is:
 
@@ -62,17 +34,13 @@ $$
 O(NB) = O(N\sqrt{N})
 $$
 
-Keep these values. The large-$k$ computation needs the boundary column:
+This small-$k$ region gives all values $DP[n][k]$ for $k < B$.
 
-$$
-DP[n][B-1]
-$$
+Keep these values because the large-$k$ computation will touch their boundary.
 
-## Group the Large-$k$ States
+For large values of $k$, meaning $k \ge B$, avoid computing every state separately.
 
-For $k \ge B$, do not compute each state separately.
-
-Group states along lines.
+Group many states together along lines.
 
 Define:
 
@@ -80,21 +48,17 @@ $$
 x[s][t] = \sum_{k \ge B} DP[s - tk][k]
 $$
 
-Here, $s$ is the starting value, $t$ is the slope parameter, and $k$ is the DP column.
+Here, $t$ represents the slope of the line.
 
-The large-$k$ contribution to the answer is:
+For fixed $s$ and $t$, the expression sums all large-$k$ DP values lying on one line in the DP table.
 
-$$
-x[N][0]
-$$
-
-because:
+The value needed from the large-$k$ region is:
 
 $$
 x[N][0] = \sum_{k \ge B} DP[N][k]
 $$
 
-So the final answer is:
+So the final answer becomes:
 
 $$
 p(N) =
@@ -103,45 +67,22 @@ p(N) =
 x[N][0]
 $$
 
-## Why Only $O(\sqrt{N})$ Slopes Matter
+Now apply the original recurrence to every term inside $x[s][t]$.
 
-A term inside $x[s][t]$ is valid only when:
-
-$$
-s - tk \ge 0
-$$
-
-Since $k \ge B$, we have:
+Start with:
 
 $$
-tk \ge tB
+x[s][t] =
+\sum_{k \ge B} DP[s - tk][k]
 $$
 
-When $t > B$, the value $s - tk$ becomes negative for all useful states.
-
-So you only need:
-
-$$
-0 \le t \le B
-$$
-
-This gives $O(\sqrt{N})$ slopes.
-
-## Derive the Recurrence for $x[s][t]$
-
-Start from:
-
-$$
-x[s][t] = \sum_{k \ge B} DP[s - tk][k]
-$$
-
-Use the original recurrence:
+Using:
 
 $$
 DP[n][k] = DP[n-1][k-1] + DP[n-k][k]
 $$
 
-Apply it to each term:
+we get:
 
 $$
 x[s][t]
@@ -151,7 +92,7 @@ x[s][t]
 \sum_{k \ge B} DP[s - tk - k][k]
 $$
 
-The second sum becomes:
+The second sum becomes simple:
 
 $$
 \sum_{k \ge B} DP[s - (t+1)k][k]
@@ -159,47 +100,43 @@ $$
 x[s][t+1]
 $$
 
-For the first sum, substitute:
+The first sum shifts the line diagonally.
+
+Let:
 
 $$
 j = k - 1
 $$
 
-Then:
-
-$$
-DP[s - tk - 1][k - 1]
-=
-DP[s - t(j+1) - 1][j]
-$$
-
-So:
+Then the term becomes:
 
 $$
 DP[s - t(j+1) - 1][j]
-=
+$$
+
+which equals:
+
+$$
 DP[s - t - 1 - tj][j]
 $$
 
-For $j \ge B$, these terms form:
+For $j \ge B$, this contributes:
 
 $$
 x[s - t - 1][t]
 $$
 
-There is one boundary term when:
+One boundary term appears when $j = B - 1$.
 
-$$
-j = B - 1
-$$
+This belongs to the small-$k$ region already computed.
 
-This term belongs to the small-$k$ region already computed. It contributes:
+Its contribution is:
 
 $$
 DP[s - tB - 1][B - 1]
 $$
 
-So the grouped recurrence is:
+So the recurrence for the grouped values is:
 
 $$
 x[s][t]
@@ -211,62 +148,48 @@ DP[s - tB - 1][B - 1]
 x[s][t+1]
 $$
 
-Invalid indices contribute zero.
+Treat invalid indices as zero.
 
-## Evaluation Order
+This recurrence turns many large-$k$ DP states into one grouped transition.
 
-Compute $x[s][t]$ in this order.
+For each slope $t$, compute all $s$ from small to large.
 
-First, process $t$ from $B$ down to $0$.
+The term $x[s - t - 1][t]$ already exists because it uses a smaller $s$.
 
-Then, for each fixed $t$, process $s$ from small to large.
+The term $x[s][t+1]$ already exists if you process $t$ in decreasing order.
 
-This works because $x[s][t]$ depends on $x[s - t - 1][t]$, which has a smaller $s$, and $x[s][t+1]$, which belongs to the next slope layer.
+You only need $t \le B$.
 
-So you only need two slope layers in memory.
+Since $k \ge B$, the term $s - tk$ becomes negative once $t$ grows beyond about $\sqrt{N}$.
 
-## Complexity
+Such states contribute zero.
 
-The small-$k$ region costs:
+So the number of useful slopes is:
 
 $$
-O(N\sqrt{N})
+O(\sqrt{N})
 $$
-
-The large-$k$ region has $O(\sqrt{N})$ slope values.
 
 For each slope, you process $O(N)$ values of $s$.
 
-So the large-$k$ region also costs:
+Therefore, the grouped large-$k$ region costs:
 
 $$
 O(N\sqrt{N})
 $$
 
-The total time complexity is:
+The total complexity is:
 
 $$
 O(N\sqrt{N})
 $$
 
-The memory usage is:
+The memory stays linear if you keep only the current and next slope layers of $x$, plus the precomputed small-$k$ boundary values.
 
-$$
-O(N)
-$$
+The core idea is simple.
 
-if you keep only the needed DP columns and two layers of $x$.
+Compute the small columns directly.
 
-## Core Idea
+For the large columns, do not visit every cell.
 
-Compute small $k$ directly.
-
-For large $k$, group DP states along lines:
-
-$$
-DP[s - tk][k]
-$$
-
-Then derive a recurrence for these line sums using the original DP recurrence.
-
-This avoids visiting all large-$k$ cells one by one.
+Sum cells along structured lines, then derive a recurrence for those line sums from the original DP recurrence.
