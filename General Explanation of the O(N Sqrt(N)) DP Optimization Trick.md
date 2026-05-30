@@ -1,6 +1,6 @@
 # An O(N sqrt(N)) Dynamic Programming Optimization for Partition Numbers
 
-This section presents an ```math(O(N\sqrt{N}))``` optimization for a two-dimensional dynamic programming formulation of the integer partition problem. The method applies to dynamic programs indexed by two parameters, here denoted by `n` and `k`, where the transition structure follows a small number of regular geometric directions in the DP table. The key idea is to compute the low-`k` region explicitly, while aggregating the high-`k` region through line sums. This avoids the quadratic cost of evaluating every state independently.
+This section presents an $$ (O(N\sqrt{N})) $$ optimization for a two-dimensional dynamic programming formulation of the integer partition problem. The method applies to dynamic programs indexed by two parameters, here denoted by `n` and `k`, where the transition structure follows a small number of regular geometric directions in the DP table. The key idea is to compute the low-`k` region explicitly, while aggregating the high-`k` region through line sums. This avoids the quadratic cost of evaluating every state independently.
 
 Let `DP[n][k]` denote the number of partitions of `n` into exactly `k` positive parts. The classical recurrence for this quantity is:
 
