@@ -1,22 +1,16 @@
-# The O(N sqrt(N)) DP Trick for Partition Numbers
+# An O(N sqrt(N)) Dynamic Programming Optimization for Partition Numbers
 
-Use this optimization when your DP table has two coordinates, `n` and `k`, and the transition moves in two regular directions.
+This section presents an (O(N\sqrt{N})) optimization for a two-dimensional dynamic programming formulation of the integer partition problem. The method applies to dynamic programs indexed by two parameters, here denoted by `n` and `k`, where the transition structure follows a small number of regular geometric directions in the DP table. The key idea is to compute the low-`k` region explicitly, while aggregating the high-`k` region through line sums. This avoids the quadratic cost of evaluating every state independently.
 
-For the partition DP, define `DP[n][k]` as the number of partitions of `n` into exactly `k` positive parts.
-
-The standard recurrence is:
+Let `DP[n][k]` denote the number of partitions of `n` into exactly `k` positive parts. The classical recurrence for this quantity is:
 
 ```math
 DP[n][k] = DP[n - 1][k - 1] + DP[n - k][k]
 ```
 
-The first term, `DP[n - 1][k - 1]`, reduces each part by `1`.
+This recurrence has a simple combinatorial interpretation. The term `DP[n - 1][k - 1]` accounts for partitions in which one unit is removed in a way that decreases both the target sum and the number of parts. The term `DP[n - k][k]` accounts for partitions in which the number of parts remains equal to `k`, while one unit is removed from each of the `k` parts. These two cases cover all partitions of `n` into exactly `k` positive parts.
 
-The second term, `DP[n - k][k]`, keeps the number of parts equal to `k`, and removes `1` from each of the `k` parts.
-
-This recurrence splits the partitions into two cases. In the first case, each part contributes at least `1`, so removing that contribution reduces both the sum and the number of parts. In the second case, the number of parts stays fixed, and one unit is removed from every part.
-
-A direct solution fills all states `DP[n][k]` for the following range:
+A direct algorithm evaluates every state `DP[n][k]` for the ranges:
 
 ```math
 1 \le n \le N
@@ -26,85 +20,71 @@ A direct solution fills all states `DP[n][k]` for the following range:
 1 \le k \le N
 ```
 
-This costs:
+This direct computation requires:
 
 ```math
 O(N^2)
 ```
 
-The goal is to avoid computing all large-`k` states one by one.
-
-The optimization starts by splitting the DP table at:
+time, since the table has quadratic size. The optimization reduces this cost by separating the DP table into a small-`k` region and a large-`k` region. Define the threshold:
 
 ```math
 B = \lfloor \sqrt{N} \rfloor
 ```
 
-For small values of `k`, meaning:
+The small-`k` region consists of all states satisfying:
 
 ```math
 k < B
 ```
 
-compute the DP normally.
-
-This region has `B` columns and `N` rows, so its cost is:
+This part contains `B` columns and `N` possible values of `n`. Therefore, it contains:
 
 ```math
-O(NB) = O(N\sqrt{N})
+O(NB)
 ```
 
-This small-`k` region gives all values `DP[n][k]` for:
+states. Since `B = floor(sqrt(N))`, this cost becomes:
 
 ```math
-k < B
+O(N\sqrt{N})
 ```
 
-Keep these values because the large-`k` computation touches their boundary.
-
-The important boundary column is:
+The small-`k` region is computed directly using the original recurrence. These values are kept because the large-`k` recurrence reaches the boundary column:
 
 ```math
 DP[n][B - 1]
 ```
 
-This boundary appears when a transition from a large column `k` moves to column `k - 1`. When `k = B`, the transition reaches `B - 1`, which belongs to the small-`k` region.
+This boundary appears when a transition from a large column `k` moves to column `k - 1`. In particular, when `k = B`, the transition reaches `B - 1`, which belongs to the already computed small-`k` region.
 
-For large values of `k`, meaning:
+The large-`k` region consists of all states satisfying:
 
 ```math
 k \ge B
 ```
 
-avoid computing every state separately.
-
-Group many states together along lines.
-
-Define:
+Computing all states in this region one by one would still be too expensive. Instead, the method groups large-`k` states along structured lines in the DP table. Define the auxiliary value:
 
 ```math
 x[s][t] = \sum_{k \ge B} DP[s - tk][k]
 ```
 
-Here, `t` represents the slope of the line.
-
-For fixed `s` and `t`, this expression sums all large-`k` DP values lying on one line in the DP table.
-
-Each term in this line has the form:
+Here, `s` is a starting coordinate, and `t` is a slope parameter. For fixed `s` and `t`, the expression sums all large-`k` states located on a line of the form:
 
 ```math
 DP[s - tk][k]
 ```
 
-As `k` changes, the first coordinate changes linearly. This structure allows many DP states to be handled together.
+As `k` varies, the first coordinate changes linearly. This creates a line in the DP table. The value `x[s][t]` therefore represents a grouped line sum over the large-`k` region.
 
-The value needed from the large-`k` region is:
+The large-`k` contribution to the partition number is obtained by setting `s = N` and `t = 0`:
 
 ```math
 x[N][0] = \sum_{k \ge B} DP[N][k]
 ```
 
-So the final answer becomes:
+Thus, the full partition number `p(N)` is written as the sum of the direct small-`k` contribution and the grouped large-`k` contribution:
 
 ```math
 p(N)
@@ -114,13 +94,7 @@ p(N)
 x[N][0]
 ```
 
-The first term is the contribution of the small-`k` region.
-
-The second term is the contribution of the large-`k` region.
-
-Now apply the original recurrence to every term inside `x[s][t]`.
-
-Start with:
+It remains to derive a recurrence for `x[s][t]`. Start from its definition:
 
 ```math
 x[s][t]
@@ -128,13 +102,13 @@ x[s][t]
 \sum_{k \ge B} DP[s - tk][k]
 ```
 
-Using:
+Apply the original recurrence to each term in this sum:
 
 ```math
 DP[n][k] = DP[n - 1][k - 1] + DP[n - k][k]
 ```
 
-we get:
+Substituting `n = s - tk` gives:
 
 ```math
 x[s][t]
@@ -144,15 +118,13 @@ x[s][t]
 \sum_{k \ge B} DP[s - tk - k][k]
 ```
 
-The second sum becomes simple.
-
-Since:
+The second summation is transformed directly. Since:
 
 ```math
 s - tk - k = s - (t + 1)k
 ```
 
-we get:
+we obtain:
 
 ```math
 \sum_{k \ge B} DP[s - tk - k][k]
@@ -162,11 +134,9 @@ we get:
 x[s][t + 1]
 ```
 
-This term increases the slope from `t` to `t + 1`.
+This term corresponds to increasing the slope from `t` to `t + 1`.
 
-The first sum shifts the line diagonally.
-
-Let:
+The first summation requires a change of variable. Let:
 
 ```math
 j = k - 1
@@ -178,45 +148,43 @@ Then:
 k = j + 1
 ```
 
-So the term becomes:
+The summand becomes:
 
 ```math
 DP[s - t(j + 1) - 1][j]
 ```
 
-which equals:
+which is equivalent to:
 
 ```math
 DP[s - t - 1 - tj][j]
 ```
 
-For:
+For all terms with:
 
 ```math
 j \ge B
 ```
 
-this contributes:
+the summation matches the grouped value:
 
 ```math
 x[s - t - 1][t]
 ```
 
-One boundary term appears when:
+One boundary term remains. This occurs when:
 
 ```math
 j = B - 1
 ```
 
-This belongs to the small-`k` region already computed.
-
-Its contribution is:
+This term lies outside the large-`k` region, so it belongs to the precomputed small-`k` region. Its contribution is:
 
 ```math
 DP[s - tB - 1][B - 1]
 ```
 
-Combining the two parts gives the recurrence:
+Combining the transformed first summation and second summation gives the recurrence:
 
 ```math
 x[s][t]
@@ -228,9 +196,7 @@ DP[s - tB - 1][B - 1]
 x[s][t + 1]
 ```
 
-All invalid indices contribute zero.
-
-For example, if either condition holds:
+All invalid indices contribute zero. For example, if either condition holds:
 
 ```math
 s - t - 1 < 0
@@ -242,40 +208,21 @@ s - tB - 1 < 0
 
 then the corresponding term is treated as zero.
 
-This recurrence computes a complete grouped line sum rather than a single DP state.
-
-For each fixed slope `t`, process all values of `s` from small to large.
-
-The term:
+This recurrence computes an entire grouped line sum rather than one DP state. It therefore compresses the computation of the large-`k` region. The evaluation order follows directly from the dependencies. For each fixed slope `t`, the values of `s` are processed from small to large. This ensures that the term:
 
 ```math
 x[s - t - 1][t]
 ```
 
-already exists because it uses a smaller value of `s`.
-
-The term:
+has already been computed, because it depends on a smaller value of `s`. The slopes are processed in decreasing order, which ensures that:
 
 ```math
 x[s][t + 1]
 ```
 
-already exists if you process `t` in decreasing order.
+is already available when computing `x[s][t]`.
 
-So the evaluation order is:
-
-```text
-1. Process t from B down to 0.
-2. For each fixed t, process s from small to large.
-```
-
-You only need:
-
-```math
-t \le B
-```
-
-A term in `x[s][t]` contributes only when:
+The number of slope values that need to be processed is also bounded. A term in `x[s][t]` contributes only when:
 
 ```math
 s - tk \ge 0
@@ -293,55 +240,51 @@ we have:
 tk \ge tB
 ```
 
-Once `t` grows beyond about `sqrt(N)`, the term:
+For all relevant values `s <= N`, once `t` grows beyond approximately `sqrt(N)`, the expression `s - tk` becomes negative. Those states contribute zero. Therefore, only slopes up to the threshold are needed:
 
 ```math
-s - tk
+0 \le t \le B
 ```
 
-becomes negative for all useful values of `s` satisfying:
-
-```math
-s \le N
-```
-
-Such states contribute zero.
-
-So the number of useful slopes is:
+This gives:
 
 ```math
 O(\sqrt{N})
 ```
 
-For each slope, you process `O(N)` values of `s`.
+possible slopes.
 
-Therefore, the grouped large-`k` region costs:
+The complexity now follows from the table split. The small-`k` region has `B` columns and `N` rows, so it costs:
+
+```math
+O(NB)
+```
+
+The grouped large-`k` region processes `O(B)` slopes, and each slope processes `O(N)` values of `s`. Its cost is also:
+
+```math
+O(NB)
+```
+
+Since:
+
+```math
+B = \lfloor \sqrt{N} \rfloor
+```
+
+the total time complexity is:
 
 ```math
 O(N\sqrt{N})
 ```
 
-The small-`k` region also costs:
-
-```math
-O(N\sqrt{N})
-```
-
-The total complexity is:
-
-```math
-O(N\sqrt{N})
-```
-
-The memory stays linear if you keep only the current and next slope layers of `x`, plus the precomputed small-`k` boundary values.
-
-The needed boundary values are:
+The memory usage stays linear. The small-`k` computation only needs the required DP columns and the boundary values:
 
 ```math
 DP[n][B - 1]
 ```
 
-The grouped recurrence only needs two layers:
+The grouped recurrence only needs two consecutive slope layers:
 
 ```math
 x[\cdot][t]
@@ -353,23 +296,13 @@ and:
 x[\cdot][t + 1]
 ```
 
-So the memory usage becomes:
+Thus, the memory usage is:
 
 ```math
 O(N)
 ```
 
-The core idea is simple.
-
-Compute the small columns directly.
-
-For the large columns, do not visit every cell.
-
-Sum cells along structured lines.
-
-Then derive a recurrence for those line sums from the original DP recurrence.
-
-This reduces the computation from:
+The method replaces individual evaluation of high-`k` DP states with aggregated line sums. The original recurrence induces a recurrence over these line sums. This structure reduces the computation from:
 
 ```math
 O(N^2)
@@ -380,3 +313,5 @@ to:
 ```math
 O(N\sqrt{N})
 ```
+
+while preserving linear memory.
