@@ -1,3 +1,81 @@
+/*
+    Sparse Table Template Guide
+    ---------------------------
+
+    Purpose:
+    - Static range queries on an array.
+    - No updates after build.
+    - Best for operations like:
+        min, max, gcd, bitwise and, bitwise or
+
+    Indexing:
+    - The array is 0-indexed.
+    - query(l,r) uses inclusive range [l,r].
+    - query_exclusive(l,r) uses range [l,r), where r is not included.
+    - Full array query: query(0,n-1).
+
+    Build:
+    - sparse<T,F> st(a,operation);
+    - Time complexity: O(n log n)
+    - Memory complexity: O(n log n)
+
+    Main query:
+    - st.query(l,r)
+    - Gets merged value in range [l,r].
+    - l and r are inclusive.
+    - Time complexity: O(1)
+    - Works correctly for idempotent operations:
+        min, max, gcd, bitwise and, bitwise or
+
+    Log query:
+    - st.query_log(l,r)
+    - Gets merged value in range [l,r].
+    - l and r are inclusive.
+    - Time complexity: O(log n)
+    - Can be used for associative operations by splitting into non-overlapping blocks.
+
+    Minimum-specific functions:
+    - These assume operation is min(x,y):
+        query_index(l,r)
+        query_pair(l,r)
+        has_at_most(l,r,value)
+        has_less_than(l,r,value)
+        all_greater_than(l,r,value)
+        all_at_least(l,r,value)
+        first_at_most(l,value)
+        first_less_than(l,value)
+        last_at_most(r,value)
+        last_less_than(r,value)
+        max_right_greater_than(l,value)
+        min_left_greater_than(r,value)
+        length_while_greater_than(l,value)
+
+    Examples:
+
+    Minimum:
+        auto operation=[](int x,int y){
+            return min(x,y);
+        };
+        sparse<int,decltype(operation)> st(a,operation);
+
+    Maximum:
+        auto operation=[](int x,int y){
+            return max(x,y);
+        };
+        sparse<int,decltype(operation)> st(a,operation);
+
+    GCD:
+        auto operation=[](int x,int y){
+            return gcd(x,y);
+        };
+        sparse<int,decltype(operation)> st(a,operation);
+
+    Common mistakes:
+    - If input is 1-indexed, convert before query:
+        l--, r--;
+    - Do not use this template if the array has updates.
+    - Do not use minimum-specific helper functions with max/gcd unless you rewrite their logic.
+*/
 template<typename T, class F>
 struct sparse {
     int Log, n;
