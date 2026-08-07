@@ -1,3 +1,25 @@
+// Small instructions to remember
+
+// Think in this exact order:
+
+// 1. What does T store?
+//    Store enough information to describe one component.
+
+// 2. What is id?
+//    The value of an empty component.
+
+// 3. merge(x,y)
+//    How do two components combine at the same node?
+
+// 4. add_edge(x)
+//    What changes when that component crosses one edge?
+
+// 5. add_node(x)
+//    What does the current node itself contribute?
+
+// 6. dp[u]
+//    Final state when the whole tree is rooted at u.
+
 template<class T, class Merge, class AddEdge, class AddVertex>
 struct Reroot {
     ll n;
