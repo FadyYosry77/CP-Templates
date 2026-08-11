@@ -1,0 +1,1369 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ll = long long;
+using vi = vector<int>;
+
+#ifndef all
+#define all(x) (x).begin(), (x).end()
+#endif
+#ifndef sz
+#define sz(x) (int) (x).size()
+#endif
+#ifndef rep
+#define rep(i,a,b) for(int i = (a);i < (b);i++)
+#endif
+
+/*
+    Compact Suffix Array reference -- C++17.
+
+    Construction:
+        - strings, vector<int>, and vector<long long>
+        - the short counting-sort doubling template below builds SA + LCP
+        - the sentinel is removed afterward, then optional sparse-table RMQ is built
+
+    Basic queries:
+        - LCP of suffixes or bounded substrings
+        - substring equality, comparison, sorting, and dense ranks
+        - pattern existence, count, SA interval, and occurrence positions
+        - SA interval and occurrence count of an in-text substring
+
+    Distinct substrings:
+        - total count and total length
+        - count by length
+        - k-th lexicographical distinct substring
+        - lexicographical rank of an in-text substring
+        - counts occurring at least / exactly k times
+
+    Repetition and uniqueness:
+        - longest repeat occurring at least / exactly k times
+        - longest non-overlapping repeat
+        - shortest unique substring and unique prefix at every suffix
+        - prefix occurrence counts and period checks
+        - bidirectional LCE and tandem-repeat helpers
+
+    LCP statistics:
+        - sum of LCP over suffix pairs
+        - pair counts with LCP at least / exactly each threshold
+        - maximum length * occurrences
+        - maximum substring frequency for every length
+
+    Multiple strings and cyclic strings:
+        - longest common substring of two strings, at least k strings, or all strings
+        - number of distinct substrings common to two strings
+        - sorted rotations and minimum cyclic shift
+        - Burrows-Wheeler transform and inverse transform
+
+    PositionIndex:
+        - pattern or substring occurrences restricted to a position interval
+        - k-th occurrence position
+        - implemented as a merge-sort tree over suffix-array order
+
+    Conventions:
+        - all text/sequence intervals are half-open [l,r)
+        - sa[i] is the start of the i-th lexicographically smallest suffix
+        - rank[sa[i]] = i
+        - lcp[0] = 0 and lcp[i] = LCP(sa[i-1],sa[i])
+        - k-th queries are 1-indexed
+
+    Complexity:
+        - construction: O(n log n)
+        - memory: O(n log n) with RMQ, O(n) without it
+        - ordinary LCP/substring comparisons: O(1) with RMQ
+*/
+
+struct SuffixArray {
+    struct CommonSubstring {
+        int len = 0;
+        int pos_a = -1;
+        int pos_b = -1;
+    };
+
+    struct BWT {
+        string last;
+        int primary = -1;
+    };
+
+    int n = 0;
+    string s;
+    vi a,sa,rank,lcp;
+    vi lg;
+    vector<vi> rmq;
+    vector<ll> distinct_prefix;
+    bool string_mode = false;
+    bool has_rmq = false;
+
+    // Build SA + LCP + optional O(1) LCP queries. O(n log n)
+    SuffixArray(const string&_s = "", bool build_rmq = true) {
+        build(_s, build_rmq);
+    }
+
+    // Build for an integer sequence. O(n log n)
+    SuffixArray(const vector<int>&_a, bool build_rmq = true) {
+        build(_a, build_rmq);
+    }
+
+    // Build for a long-long sequence. O(n log n)
+    SuffixArray(const vector<ll>&_a, bool build_rmq = true) {
+        vector<ll> vals = _a;
+        sort(vals.begin(), vals.end());
+        vals.erase(unique(vals.begin(), vals.end()), vals.end());
+
+        vector<int> b(_a.size());
+
+        for(int i = 0;i < (int) _a.size();i++)
+            b[i] = (int) (lower_bound(vals.begin(), vals.end(), _a[i]) - vals.begin());
+
+        build(b, build_rmq);
+    }
+
+    // Coordinate-compress to [1..classes], reserving 0 for the sentinel. O(n log n)
+    static vector<int> compress_positive(const vector<int>&v) {
+        vector<int> vals = v;
+        sort(vals.begin(), vals.end());
+        vals.erase(unique(vals.begin(), vals.end()), vals.end());
+
+        vector<int> res(v.size());
+
+        for(int i = 0;i < (int) v.size();i++)
+            res[i] = (int) (lower_bound(vals.begin(), vals.end(), v[i]) - vals.begin()) + 1;
+
+        return res;
+    }
+
+    // Rebuild from a string. O(n log n)
+    void build(const string&_s, bool build_sparse = true) {
+        s = _s;
+        n = (int) s.size();
+        a.resize(n);
+
+        for(int i = 0;i < n;i++)
+            a[i] = (unsigned char) s[i];
+
+        string_mode = true;
+        build_all(build_sparse);
+    }
+
+    // Rebuild from an integer sequence. O(n log n)
+    void build(const vector<int>&_a, bool build_sparse = true) {
+        s.clear();
+        a = _a;
+        n = (int) a.size();
+        string_mode = false;
+        build_all(build_sparse);
+    }
+
+    // The supplied short SA template, adapted to compressed integers. O(n log n)
+    // It builds SA and Kasai LCP together; sentinel rank 0 is removed at the end.
+    void build_sa() {
+        vi text = compress_positive(a);
+        text.push_back(0); int N = sz(text),k = 0,u,v;
+        int lim = max(N, n ? *max_element(all(text)) + 1 : 1);
+        vi x(all(text)),y(N),ws(max(N, lim));
+        sa = lcp = y, iota(all(sa), 0);
+
+        for(int j = 0,p = 0;p < N;j = max(1, j * 2),lim = p) {
+            p = j, iota(all(y), N - j);
+            rep(i,0,N) if(sa[i] >= j) y[p++] = sa[i] - j;
+            fill(all(ws), 0);
+            rep(i,0,N) ws[x[i]]++;
+            rep(i,1,lim) ws[i] += ws[i - 1];
+            for(int i = N;i--;) sa[--ws[x[y[i]]]] = y[i];
+            swap(x, y),p = 1,x[sa[0]] = 0;
+            rep(i,1,N) u = sa[i - 1],v = sa[i],
+                x[v] = (y[u] == y[v] && y[u + j] == y[v + j]) ? p - 1 : p++;
+        }
+
+        for(int i = 0,j;i < N - 1;lcp[x[i++]] = k)
+            for(k && k--,j = sa[x[i] - 1];text[i + k] == text[j + k];k++);
+
+        assert(sa[0] == n);
+        sa.erase(sa.begin());
+        lcp.erase(lcp.begin());
+
+        rank.assign(n, 0);
+
+        rep(i,0,n)
+            rank[sa[i]] = i;
+    }
+
+    // Build sparse-table RMQ over LCP. O(n log n)
+    void build_lcp_rmq() {
+        has_rmq = true;
+        lg.assign(n + 1, 0);
+
+        for(int i = 2;i <= n;i++)
+            lg[i] = lg[i / 2] + 1;
+
+        if(n == 0) {
+            rmq.clear();
+            return;
+        }
+
+        rmq.assign(lg[n] + 1, vector<int>(n));
+        rmq[0] = lcp;
+
+        for(int k = 1;k < (int) rmq.size();k++) {
+            int len = 1 << k;
+
+            for(int i = 0;i + len <= n;i++)
+                rmq[k][i] = min(rmq[k - 1][i], rmq[k - 1][i + len / 2]);
+        }
+    }
+
+    // Build every standard array. O(n log n)
+    void build_all(bool build_sparse) {
+        has_rmq = false;
+        lg.clear();
+        rmq.clear();
+        build_sa();
+
+        distinct_prefix.assign(n + 1, 0);
+
+        for(int i = 0;i < n;i++)
+            distinct_prefix[i + 1] = distinct_prefix[i] + n - sa[i] - lcp[i];
+
+        if(build_sparse)
+            build_lcp_rmq();
+    }
+
+    // Minimum of lcp[l..r], inclusive. O(1)
+    int lcp_range(int l, int r) const {
+        assert(has_rmq);
+
+        if(l > r)
+            return INT_MAX;
+
+        int k = lg[r - l + 1];
+        return min(rmq[k][l], rmq[k][r - (1 << k) + 1]);
+    }
+
+    // LCP of suffixes starting at i,j. O(1)
+    int lcp_suffix(int i, int j) const {
+        assert(has_rmq);
+        assert(0 <= i && i < n && 0 <= j && j < n);
+
+        if(i == j)
+            return n - i;
+
+        int x = rank[i],y = rank[j];
+
+        if(x > y)
+            swap(x, y);
+
+        return lcp_range(x + 1, y);
+    }
+
+    // LCP of [l1,r1),[l2,r2), capped by both lengths. O(1)
+    int lcp_substrings(int l1, int r1, int l2, int r2) const {
+        if(l1 == r1 || l2 == r2)
+            return 0;
+
+        return min({lcp_suffix(l1, l2), r1 - l1, r2 - l2});
+    }
+
+    // Test equality of two half-open substrings. O(1)
+    bool equal_substrings(int l1, int r1, int l2, int r2) const {
+        return r1 - l1 == r2 - l2 &&
+               lcp_substrings(l1, r1, l2, r2) == r1 - l1;
+    }
+
+    // Compare two half-open substrings. O(1)
+    int compare_substrings(int l1, int r1, int l2, int r2) const {
+        int n1 = r1 - l1,n2 = r2 - l2;
+        int common = lcp_substrings(l1, r1, l2, r2);
+
+        if(common == min(n1, n2))
+            return n1 == n2 ? 0 : (n1 < n2 ? -1 : 1);
+
+        return a[l1 + common] < a[l2 + common] ? -1 : 1;
+    }
+
+    // Sort represented substrings without copying them. O(q log q)
+    vector<pair<int,int>> sort_substrings(vector<pair<int,int>> v) const {
+        sort(v.begin(), v.end(), [&](auto x, auto y) {
+            int cmp = compare_substrings(x.first, x.second, y.first, y.second);
+            return cmp ? cmp < 0 : x < y;
+        });
+
+        return v;
+    }
+
+    // Sort and remove equal represented substrings. O(q log q)
+    vector<pair<int,int>> deduplicate_substrings(vector<pair<int,int>> v) const {
+        v = sort_substrings(move(v));
+        vector<pair<int,int>> res;
+
+        for(auto [l,r]:v) {
+            if(res.empty() || !equal_substrings(res.back().first, res.back().second, l, r))
+                res.push_back({l, r});
+        }
+
+        return res;
+    }
+
+    // Compare suffix s[pos..] with pattern. O(|pattern|)
+    int compare_suffix_pattern(int pos, const string&pattern) const {
+        assert(string_mode);
+        int i = 0;
+
+        while(pos + i < n && i < (int) pattern.size()) {
+            unsigned char x = s[pos + i],y = pattern[i];
+
+            if(x != y)
+                return x < y ? -1 : 1;
+
+            i++;
+        }
+
+        return i == (int) pattern.size() ? 0 : -1;
+    }
+
+    // SA interval [l,r) of suffixes starting with pattern. O(|pattern| log n)
+    pair<int,int> pattern_range(const string&pattern) const {
+        assert(string_mode);
+        int lo = 0,hi = n;
+
+        while(lo < hi) {
+            int mid = (lo + hi) / 2;
+
+            if(compare_suffix_pattern(sa[mid], pattern) < 0)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+
+        int left = lo;
+        hi = n;
+
+        while(lo < hi) {
+            int mid = (lo + hi) / 2;
+
+            if(compare_suffix_pattern(sa[mid], pattern) <= 0)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+
+        return {left, lo};
+    }
+
+    // Check whether pattern occurs. O(|pattern| log n)
+    bool contains(const string&pattern) const {
+        auto [l,r] = pattern_range(pattern);
+        return l < r;
+    }
+
+    // Count pattern occurrences. O(|pattern| log n)
+    int count_occurrences(const string&pattern) const {
+        auto [l,r] = pattern_range(pattern);
+        return r - l;
+    }
+
+    // Occurrence starts in text order. O(|pattern| log n + occ log occ)
+    vector<int> all_occurrences(const string&pattern) const {
+        auto [l,r] = pattern_range(pattern);
+        vector<int> res(sa.begin() + l, sa.begin() + r);
+        sort(res.begin(), res.end());
+        return res;
+    }
+
+    // Count distinct nonempty substrings. O(1)
+    ll count_distinct_substrings() const {
+        return distinct_prefix.back();
+    }
+
+    // Sum lengths of all distinct substrings. O(n)
+    ll total_length_distinct_substrings() const {
+        ll ans = 0;
+
+        for(int i = 0;i < n;i++) {
+            ll low = lcp[i] + 1;
+            ll high = n - sa[i];
+            ans += (low + high) * (high - low + 1) / 2;
+        }
+
+        return ans;
+    }
+
+    // Number of distinct substrings of each length. O(n)
+    vector<ll> distinct_by_length() const {
+        vector<ll> diff(n + 2),ans(n + 1);
+
+        for(int i = 0;i < n;i++) {
+            int l = lcp[i] + 1;
+            int r = n - sa[i];
+
+            if(l <= r) {
+                diff[l]++;
+                diff[r + 1]--;
+            }
+        }
+
+        for(int len = 1;len <= n;len++)
+            ans[len] = ans[len - 1] + diff[len];
+
+        return ans;
+    }
+
+    // k-th distinct substring interval, 1-indexed. O(log n)
+    pair<int,int> kth_substring_interval(ll k) const {
+        if(k <= 0 || k > count_distinct_substrings())
+            return {-1, -1};
+
+        int r = (int) (lower_bound(distinct_prefix.begin() + 1, distinct_prefix.end(), k)
+              - distinct_prefix.begin());
+        int i = r - 1;
+        int len = lcp[i] + (int) (k - distinct_prefix[i]);
+
+        return {sa[i], sa[i] + len};
+    }
+
+    // k-th distinct substring, 1-indexed. O(log n + answer)
+    string kth_substring(ll k) const {
+        assert(string_mode);
+        auto [l,r] = kth_substring_interval(k);
+        return l == -1 ? string() : s.substr(l, r - l);
+    }
+
+    // Lexicographic rank of represented nonempty substring, 1-indexed. O(log n)
+    ll rank_substring(int l, int r) const {
+        if(l < 0 || l >= r || r > n)
+            return -1;
+
+        int len = r - l;
+        int at = rank[l];
+        int lo = 0,hi = at;
+
+        while(lo < hi) {
+            int mid = (lo + hi) / 2;
+
+            if(lcp_range(mid + 1, at) >= len)
+                hi = mid;
+            else
+                lo = mid + 1;
+        }
+
+        return distinct_prefix[lo] + len - lcp[lo];
+    }
+
+    // Longest substring occurring at least twice. O(n)
+    pair<int,int> longest_repeated_substring() const {
+        int pos = -1,best = 0;
+
+        for(int i = 1;i < n;i++) {
+            if(lcp[i] > best) {
+                best = lcp[i];
+                pos = sa[i];
+            }
+        }
+
+        return {pos, best};
+    }
+
+    // Longest substring occurring at least k times. O(n)
+    pair<int,int> longest_repeated_at_least(int k) const {
+        if(k <= 0 || k > n)
+            return {-1, 0};
+
+        if(k == 1)
+            return n ? pair<int,int>{0, n} : pair<int,int>{-1, 0};
+
+        deque<int> q;
+        int pos = -1,best = 0;
+
+        for(int r = 1;r < n;r++) {
+            while(!q.empty() && lcp[q.back()] >= lcp[r])
+                q.pop_back();
+
+            q.push_back(r);
+            int first_edge = r - (k - 2);
+
+            while(!q.empty() && q.front() < first_edge)
+                q.pop_front();
+
+            if(r >= k - 1 && lcp[q.front()] > best) {
+                best = lcp[q.front()];
+                pos = sa[r - k + 1];
+            }
+        }
+
+        return {pos, best};
+    }
+
+    // Longest substring occurring exactly k times. O(n)
+    pair<int,int> longest_repeated_exactly(int k) const {
+        if(k <= 0 || k > n)
+            return {-1, 0};
+
+        if(k == 1)
+            return n ? pair<int,int>{0, n} : pair<int,int>{-1, 0};
+
+        deque<int> q;
+        int pos = -1,best = 0;
+
+        for(int r = 1;r < n;r++) {
+            while(!q.empty() && lcp[q.back()] >= lcp[r])
+                q.pop_back();
+
+            q.push_back(r);
+            int first_edge = r - (k - 2);
+
+            while(!q.empty() && q.front() < first_edge)
+                q.pop_front();
+
+            if(r < k - 1)
+                continue;
+
+            int left = r - k + 1;
+            int inside = lcp[q.front()];
+            int outside_left = left ? lcp[left] : 0;
+            int outside_right = r + 1 < n ? lcp[r + 1] : 0;
+
+            if(inside > max(outside_left, outside_right) && inside > best) {
+                best = inside;
+                pos = sa[left];
+            }
+        }
+
+        return {pos, best};
+    }
+
+    // Check for two disjoint occurrences of length len. O(n)
+    bool has_non_overlapping_repeat(int len, int&pos) const {
+        if(len == 0) {
+            pos = 0;
+            return true;
+        }
+
+        int i = 0;
+
+        while(i < n) {
+            int mn = sa[i],mx = sa[i];
+            int j = i + 1;
+
+            while(j < n && lcp[j] >= len) {
+                mn = min(mn, sa[j]);
+                mx = max(mx, sa[j]);
+                j++;
+            }
+
+            if(mx - mn >= len) {
+                pos = mn;
+                return true;
+            }
+
+            i = j;
+        }
+
+        return false;
+    }
+
+    // Longest substring with two disjoint occurrences. O(n log n)
+    pair<int,int> longest_non_overlapping_repeat() const {
+        int lo = 1,hi = n / 2;
+        int pos = -1,best = 0;
+
+        while(lo <= hi) {
+            int mid = (lo + hi) / 2;
+            int at = -1;
+
+            if(has_non_overlapping_repeat(mid, at)) {
+                best = mid;
+                pos = at;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+
+        return {pos, best};
+    }
+
+    // LCP shared by arbitrary suffix starts. O(k)
+    int lcp_many_suffixes(const vector<int>&positions) const {
+        if(positions.empty())
+            return 0;
+
+        int lo = rank[positions[0]],hi = lo;
+
+        for(int p:positions) {
+            lo = min(lo, rank[p]);
+            hi = max(hi, rank[p]);
+        }
+
+        return lo == hi ? n - sa[lo] : lcp_range(lo + 1, hi);
+    }
+
+    // Check whether [l,r) has period p. O(1)
+    bool has_period(int l, int r, int p) const {
+        int len = r - l;
+
+        if(p <= 0 || p > len)
+            return false;
+
+        return p == len || lcp_suffix(l, l + p) >= len - p;
+    }
+
+    // Maximum LCP of each suffix with another suffix. O(n)
+    vector<int> maximum_neighbor_lcp() const {
+        vector<int> ans(n);
+
+        for(int i = 0;i < n;i++) {
+            int best = lcp[i];
+
+            if(i + 1 < n)
+                best = max(best, lcp[i + 1]);
+
+            ans[sa[i]] = best;
+        }
+
+        return ans;
+    }
+
+    // Shortest unique prefix length at each suffix, or -1. O(n)
+    vector<int> shortest_unique_prefix() const {
+        vector<int> common = maximum_neighbor_lcp();
+        vector<int> ans(n, -1);
+
+        for(int i = 0;i < n;i++) {
+            if(common[i] < n - i)
+                ans[i] = common[i] + 1;
+        }
+
+        return ans;
+    }
+
+    // Globally shortest unique substring. O(n)
+    pair<int,int> shortest_unique_substring() const {
+        vector<int> len = shortest_unique_prefix();
+        int pos = -1,best = INT_MAX;
+
+        for(int i = 0;i < n;i++) {
+            if(len[i] != -1 && len[i] < best) {
+                best = len[i];
+                pos = i;
+            }
+        }
+
+        return pos == -1 ? pair<int,int>{-1, 0} : pair<int,int>{pos, best};
+    }
+
+    // Occurrence count of every prefix length. O(n)
+    vector<int> prefix_occurrences() const {
+        vector<int> exact(n + 1),ans(n + 1);
+
+        for(int i = 0;i < n;i++) {
+            int common = i == 0 ? n : lcp_suffix(0, i);
+            exact[common]++;
+        }
+
+        for(int len = n;len >= 1;len--)
+            ans[len] = exact[len] + (len < n ? ans[len + 1] : 0);
+
+        ans[0] = n;
+        return ans;
+    }
+
+    // Sum LCP over all unordered pairs of different suffixes. O(n)
+    ll sum_lcp_pairs() const {
+        vector<int> prv(n),nxt(n),st;
+
+        for(int i = 1;i < n;i++) {
+            while(!st.empty() && lcp[st.back()] >= lcp[i])
+                st.pop_back();
+
+            prv[i] = st.empty() ? 0 : st.back();
+            st.push_back(i);
+        }
+
+        st.clear();
+
+        for(int i = n - 1;i >= 1;i--) {
+            while(!st.empty() && lcp[st.back()] > lcp[i])
+                st.pop_back();
+
+            nxt[i] = st.empty() ? n : st.back();
+            st.push_back(i);
+        }
+
+        ll ans = 0;
+
+        for(int i = 1;i < n;i++)
+            ans += 1LL * lcp[i] * (i - prv[i]) * (nxt[i] - i);
+
+        return ans;
+    }
+
+    // Number of suffix pairs with LCP at least k. O(n)
+    ll count_pairs_lcp_at_least(int k) const {
+        if(k <= 0)
+            return 1LL * n * (n - 1) / 2;
+
+        ll ans = 0;
+        int i = 1;
+
+        while(i < n) {
+            if(lcp[i] < k) {
+                i++;
+                continue;
+            }
+
+            int first = i;
+
+            while(i < n && lcp[i] >= k)
+                i++;
+
+            ll cnt = i - first + 1;
+            ans += cnt * (cnt - 1) / 2;
+        }
+
+        return ans;
+    }
+
+    // Number of suffix pairs with LCP exactly k. O(n)
+    ll count_pairs_lcp_exactly(int k) const {
+        return k < 0 ? 0 : count_pairs_lcp_at_least(k) - count_pairs_lcp_at_least(k + 1);
+    }
+
+    // Pair counts for every threshold: ans[len]=pairs with LCP>=len. O(n)
+    vector<ll> pair_profile() const {
+        vector<vector<int>> edge(n + 1);
+
+        for(int i = 1;i < n;i++)
+            edge[lcp[i]].push_back(i);
+
+        vector<int> parent(n),component_size(n, 1);
+        vector<ll> ans(n + 1);
+        iota(parent.begin(), parent.end(), 0);
+
+        function<int(int)> find = [&](int x) {
+            return parent[x] == x ? x : parent[x] = find(parent[x]);
+        };
+
+        ll pairs = 0;
+
+        for(int len = n;len >= 1;len--) {
+            for(int e:edge[len]) {
+                int x = find(e - 1),y = find(e);
+
+                if(x == y)
+                    continue;
+
+                if(component_size[x] < component_size[y])
+                    swap(x, y);
+
+                pairs += 1LL * component_size[x] * component_size[y];
+                parent[y] = x;
+                component_size[x] += component_size[y];
+            }
+
+            ans[len] = pairs;
+        }
+
+        ans[0] = 1LL * n * (n - 1) / 2;
+        return ans;
+    }
+
+    // Maximum length * occurrence count. O(n)
+    ll max_repeat_value(bool allow_once = true) const {
+        ll ans = allow_once ? n : 0;
+        vector<int> st;
+
+        for(int i = 1;i <= n;i++) {
+            int height = i < n ? lcp[i] : 0;
+
+            while(!st.empty() && lcp[st.back()] >= height) {
+                int at = st.back();
+                st.pop_back();
+                int left = st.empty() ? 1 : st.back() + 1;
+                ans = max(ans, 1LL * lcp[at] * (i - left + 1));
+            }
+
+            if(i < n)
+                st.push_back(i);
+        }
+
+        return ans;
+    }
+
+    // Count distinct substrings occurring at least k times. O(n)
+    ll count_distinct_at_least(int k) const {
+        if(k <= 1)
+            return count_distinct_substrings();
+
+        if(k > n)
+            return 0;
+
+        vector<int> common(n);
+        deque<int> q;
+
+        for(int r = 1;r < n;r++) {
+            while(!q.empty() && lcp[q.back()] >= lcp[r])
+                q.pop_back();
+
+            q.push_back(r);
+            int first_edge = r - (k - 2);
+
+            while(!q.empty() && q.front() < first_edge)
+                q.pop_front();
+
+            if(r >= k - 1)
+                common[r - k + 1] = lcp[q.front()];
+        }
+
+        ll ans = 0;
+
+        for(int i = 0;i + k <= n;i++)
+            ans += max(0, min(n - sa[i], common[i]) - lcp[i]);
+
+        return ans;
+    }
+
+    // Count distinct substrings occurring exactly k times. O(n)
+    ll count_distinct_exactly(int k) const {
+        if(k <= 0 || k > n)
+            return 0;
+
+        return count_distinct_at_least(k) - count_distinct_at_least(k + 1);
+    }
+
+    // Maximum substring frequency for every length. O(n)
+    vector<int> max_occurrences_by_length() const {
+        vector<vector<int>> edge(n + 1);
+
+        for(int i = 1;i < n;i++)
+            edge[lcp[i]].push_back(i);
+
+        vector<int> parent(n),component_size(n, 1),ans(n + 1, n ? 1 : 0);
+        iota(parent.begin(), parent.end(), 0);
+
+        function<int(int)> find = [&](int x) {
+            return parent[x] == x ? x : parent[x] = find(parent[x]);
+        };
+
+        int best = n ? 1 : 0;
+
+        for(int len = n;len >= 1;len--) {
+            for(int e:edge[len]) {
+                int x = find(e - 1),y = find(e);
+
+                if(x == y)
+                    continue;
+
+                if(component_size[x] < component_size[y])
+                    swap(x, y);
+
+                parent[y] = x;
+                component_size[x] += component_size[y];
+                best = max(best, component_size[x]);
+            }
+
+            ans[len] = best;
+        }
+
+        ans[0] = n;
+        return ans;
+    }
+
+    // SA interval of occurrences of represented substring [l,r). O(log n)
+    pair<int,int> substring_range(int l, int r) const {
+        assert(has_rmq);
+
+        if(l == r)
+            return {0, n};
+
+        int len = r - l;
+        int center = rank[l];
+        int lo = 0,hi = center;
+
+        while(lo < hi) {
+            int mid = (lo + hi) / 2;
+
+            if(lcp_range(mid + 1, center) >= len)
+                hi = mid;
+            else
+                lo = mid + 1;
+        }
+
+        int left = lo;
+        lo = center;
+        hi = n - 1;
+
+        while(lo < hi) {
+            int mid = (lo + hi + 1) / 2;
+
+            if(lcp_range(center + 1, mid) >= len)
+                lo = mid;
+            else
+                hi = mid - 1;
+        }
+
+        return {left, lo + 1};
+    }
+
+    // Count occurrences of represented substring [l,r). O(log n)
+    int count_substring_occurrences(int l, int r) const {
+        auto [x,y] = substring_range(l, r);
+        return y - x;
+    }
+
+    // Dense ranks of represented substring queries. O(q log q)
+    vector<int> rank_substring_queries(const vector<pair<int,int>>&queries) const {
+        vector<int> ord(queries.size()),ans(queries.size());
+        iota(ord.begin(), ord.end(), 0);
+
+        stable_sort(ord.begin(), ord.end(), [&](int x, int y) {
+            return compare_substrings(queries[x].first, queries[x].second,
+                                      queries[y].first, queries[y].second) < 0;
+        });
+
+        int current = -1;
+
+        for(int i = 0;i < (int) ord.size();i++) {
+            if(i == 0 || !equal_substrings(queries[ord[i - 1]].first,
+                                           queries[ord[i - 1]].second,
+                                           queries[ord[i]].first,
+                                           queries[ord[i]].second))
+                current++;
+
+            ans[ord[i]] = current;
+        }
+
+        return ans;
+    }
+
+    // Longest common substring of two strings. O((n+m) log(n+m))
+    static CommonSubstring LCS(const string&x, const string&y) {
+        vector<int> joined;
+        joined.reserve(x.size() + y.size() + 1);
+
+        for(unsigned char c:x)
+            joined.push_back(c + 1);
+
+        joined.push_back(257);
+
+        for(unsigned char c:y)
+            joined.push_back(c + 1);
+
+        SuffixArray suf(joined, false);
+        CommonSubstring ans;
+        int nx = (int) x.size();
+
+        auto owner = [&](int p) {
+            if(p < nx)
+                return 0;
+            if(p > nx)
+                return 1;
+            return -1;
+        };
+
+        for(int i = 1;i < suf.n;i++) {
+            int p = suf.sa[i - 1],q = suf.sa[i];
+            int op = owner(p),oq = owner(q);
+
+            if(op == -1 || oq == -1 || op == oq)
+                continue;
+
+            int len = suf.lcp[i];
+            len = min(len, op == 0 ? nx - p : (int) y.size() - (p - nx - 1));
+            len = min(len, oq == 0 ? nx - q : (int) y.size() - (q - nx - 1));
+
+            if(len > ans.len) {
+                ans.len = len;
+                ans.pos_a = op == 0 ? p : q;
+                ans.pos_b = op == 1 ? p - nx - 1 : q - nx - 1;
+            }
+        }
+
+        return ans;
+    }
+
+    // Longest substring present in at least k input strings. O(N log N)
+    static int LCS_at_least_k(const vector<string>&v, int k) {
+        int m = (int) v.size();
+
+        if(k <= 0 || k > m)
+            return 0;
+
+        if(k == 1) {
+            int ans = 0;
+            for(auto&t:v) ans = max(ans, (int) t.size());
+            return ans;
+        }
+
+        vector<int> joined,owner;
+
+        for(int id = 0;id < m;id++) {
+            for(unsigned char c:v[id]) {
+                joined.push_back(c + 1);
+                owner.push_back(id);
+            }
+
+            joined.push_back(257 + id);
+            owner.push_back(-1);
+        }
+
+        SuffixArray suf(joined);
+        vector<int> cnt(m);
+        int kinds = 0,left = 0,best = 0;
+
+        for(int right = 0;right < suf.n;right++) {
+            int id = owner[suf.sa[right]];
+
+            if(id != -1 && cnt[id]++ == 0)
+                kinds++;
+
+            while(kinds >= k) {
+                best = max(best, suf.lcp_range(left + 1, right));
+                int out = owner[suf.sa[left++]];
+
+                if(out != -1 && --cnt[out] == 0)
+                    kinds--;
+            }
+        }
+
+        return best;
+    }
+
+    // Longest substring present in every input string. O(N log N)
+    static int LCS_many(const vector<string>&v) {
+        return v.empty() ? 0 : LCS_at_least_k(v, (int) v.size());
+    }
+
+    // Number of distinct substrings present in both strings. O((n+m) log(n+m))
+    static ll count_common_distinct(const string&x, const string&y) {
+        vector<int> joined;
+
+        for(unsigned char c:x)
+            joined.push_back(c + 1);
+
+        joined.push_back(257);
+
+        for(unsigned char c:y)
+            joined.push_back(c + 1);
+
+        SuffixArray suf(joined);
+        int nx = (int) x.size();
+        vector<int> owner(suf.n, -1);
+
+        for(int i = 0;i < nx;i++)
+            owner[i] = 0;
+
+        for(int i = nx + 1;i < suf.n;i++)
+            owner[i] = 1;
+
+        vector<int> prv_b(suf.n, -1),nxt_b(suf.n, -1);
+        int last = -1;
+
+        for(int r = 0;r < suf.n;r++) {
+            prv_b[r] = last;
+
+            if(owner[suf.sa[r]] == 1)
+                last = r;
+        }
+
+        last = -1;
+
+        for(int r = suf.n - 1;r >= 0;r--) {
+            nxt_b[r] = last;
+
+            if(owner[suf.sa[r]] == 1)
+                last = r;
+        }
+
+        ll ans = 0;
+        int previous_a = -1;
+
+        for(int r = 0;r < suf.n;r++) {
+            int p = suf.sa[r];
+
+            if(owner[p] != 0)
+                continue;
+
+            int duplicate = previous_a == -1 ? 0 : suf.lcp_range(previous_a + 1, r);
+            int common = 0;
+
+            if(prv_b[r] != -1)
+                common = max(common, suf.lcp_range(prv_b[r] + 1, r));
+
+            if(nxt_b[r] != -1)
+                common = max(common, suf.lcp_range(r + 1, nxt_b[r]));
+
+            common = min(common, nx - p);
+            ans += max(0, common - duplicate);
+            previous_a = r;
+        }
+
+        return ans;
+    }
+
+    // Sorted cyclic-shift starts. O(n log n)
+    static vector<int> sort_rotations(const string&t) {
+        int m = (int) t.size();
+
+        if(m == 0)
+            return {};
+
+        SuffixArray suf(t + t);
+        vector<int> ord(m);
+        iota(ord.begin(), ord.end(), 0);
+
+        sort(ord.begin(), ord.end(), [&](int x, int y) {
+            int cmp = suf.compare_substrings(x, x + m, y, y + m);
+            return cmp ? cmp < 0 : x < y;
+        });
+
+        return ord;
+    }
+
+    // Lexicographically minimum cyclic shift. O(n log n)
+    static string minimal_cyclic_shift(const string&t) {
+        if(t.empty())
+            return {};
+
+        int at = sort_rotations(t)[0];
+        return (t + t).substr(at, t.size());
+    }
+
+    // Burrows-Wheeler transform using sorted cyclic shifts. O(n log n)
+    static BWT bwt(const string&t) {
+        BWT res;
+
+        if(t.empty()) {
+            res.primary = 0;
+            return res;
+        }
+
+        vector<int> ord = sort_rotations(t);
+        res.last.resize(t.size());
+
+        for(int i = 0;i < (int) t.size();i++) {
+            int p = ord[i];
+            res.last[i] = t[(p + t.size() - 1) % t.size()];
+
+            if(p == 0)
+                res.primary = i;
+        }
+
+        return res;
+    }
+
+    // Invert the cyclic-shift BWT. O(n+alphabet)
+    static string inverse_bwt(const BWT&b) {
+        int m = (int) b.last.size();
+
+        if(m == 0)
+            return {};
+
+        assert(0 <= b.primary && b.primary < m);
+        vector<int> cnt(256),seen(m),start(256),next(m);
+
+        for(int i = 0;i < m;i++) {
+            int c = (unsigned char) b.last[i];
+            seen[i] = cnt[c]++;
+        }
+
+        for(int c = 1;c < 256;c++)
+            start[c] = start[c - 1] + cnt[c - 1];
+
+        for(int i = 0;i < m;i++) {
+            int c = (unsigned char) b.last[i];
+            next[i] = start[c] + seen[i];
+        }
+
+        string res(m, '\0');
+        int row = b.primary;
+
+        for(int i = m - 1;i >= 0;i--) {
+            res[i] = b.last[row];
+            row = next[row];
+        }
+
+        return res;
+    }
+
+    // LCS immediately before boundaries i,j using SA(reverse(s)). O(1)
+    int lcs_before(int i, int j, const SuffixArray&reversed) const {
+        assert(0 <= i && i <= n && 0 <= j && j <= n);
+        assert(reversed.n == n);
+
+        if(i == 0 || j == 0)
+            return 0;
+
+        return reversed.lcp_suffix(n - i, n - j);
+    }
+
+    // Left/right extensions of equal blocks starting at i,j. O(1)
+    pair<int,int> lce_both_directions(int i, int j,
+                                      const SuffixArray&reversed,
+                                      int left_cap = INT_MAX,
+                                      int right_cap = INT_MAX) const {
+        int left = min(lcs_before(i, j, reversed), left_cap);
+        int right = min(lcp_suffix(i, j), right_cap);
+        return {left, right};
+    }
+
+    // Left/right equality extensions around adjacent p-blocks. O(1)
+    pair<int,int> tandem_extensions(int boundary, int p,
+                                    const SuffixArray&reversed) const {
+        if(p <= 0 || boundary - p < 0 || boundary + p > n)
+            return {0, 0};
+
+        return lce_both_directions(boundary - p, boundary, reversed, p, p);
+    }
+
+    // Check whether the adjacent p-blocks at boundary are equal. O(1)
+    bool adjacent_equal_blocks(int boundary, int p) const {
+        return p > 0 && boundary - p >= 0 && boundary + p <= n &&
+               lcp_suffix(boundary - p, boundary) >= p;
+    }
+
+    // Check whether some shifted p-square is covered by this anchor pair. O(1)
+    bool tandem_crosses(int boundary, int p, const SuffixArray&reversed) const {
+        auto [left,right] = tandem_extensions(boundary, p, reversed);
+        return p > 0 && left + right >= p;
+    }
+
+    struct PositionIndex {
+        const SuffixArray*suf = nullptr;
+        vector<vector<int>> tree;
+
+        PositionIndex() = default;
+
+        // Build merge-sort tree over SA positions. O(n log n)
+        PositionIndex(const SuffixArray&_suf) {
+            build(_suf);
+        }
+
+        void build_node(int node, int l, int r) {
+            if(r - l == 1) {
+                tree[node] = {suf->sa[l]};
+                return;
+            }
+
+            int mid = (l + r) / 2;
+            build_node(node * 2, l, mid);
+            build_node(node * 2 + 1, mid, r);
+            merge(tree[node * 2].begin(), tree[node * 2].end(),
+                  tree[node * 2 + 1].begin(), tree[node * 2 + 1].end(),
+                  back_inserter(tree[node]));
+        }
+
+        // Rebuild for another suffix array. O(n log n)
+        void build(const SuffixArray&_suf) {
+            suf = &_suf;
+            tree.assign(max(1, 4 * suf->n), {});
+
+            if(suf->n)
+                build_node(1, 0, suf->n);
+        }
+
+        int count_node(int node, int l, int r, int ql, int qr,
+                       int pos_l, int pos_r) const {
+            if(qr <= l || r <= ql)
+                return 0;
+
+            if(ql <= l && r <= qr) {
+                auto first = lower_bound(tree[node].begin(), tree[node].end(), pos_l);
+                auto last = lower_bound(tree[node].begin(), tree[node].end(), pos_r);
+                return (int) (last - first);
+            }
+
+            int mid = (l + r) / 2;
+            return count_node(node * 2, l, mid, ql, qr, pos_l, pos_r) +
+                   count_node(node * 2 + 1, mid, r, ql, qr, pos_l, pos_r);
+        }
+
+        // Count starts in SA range [l,r) and position range [x,y). O(log^2 n)
+        int count_range(int l, int r, int x, int y) const {
+            if(!suf || l >= r || x >= y || suf->n == 0)
+                return 0;
+
+            return count_node(1, 0, suf->n, l, r, x, y);
+        }
+
+        // Count pattern starts in [x,y). O(|p|log n+log^2 n)
+        int count(const string&pattern, int x, int y) const {
+            auto [l,r] = suf->pattern_range(pattern);
+            return count_range(l, r, x, y);
+        }
+
+        // Check whether pattern starts in [x,y). O(|p|log n+log^2 n)
+        bool exists(const string&pattern, int x, int y) const {
+            return count(pattern, x, y) > 0;
+        }
+
+        // Count represented substring starts in [x,y). O(log^2 n)
+        int count_substring(int l, int r, int x, int y) const {
+            auto [sa_l,sa_r] = suf->substring_range(l, r);
+            return count_range(sa_l, sa_r, x, y);
+        }
+
+        // k-th smallest start in SA range, 1-indexed. O(log^2 n)
+        int kth_position(int sa_l, int sa_r, int k) const {
+            if(k <= 0 || k > sa_r - sa_l)
+                return -1;
+
+            int lo = 0,hi = suf->n - 1;
+
+            while(lo < hi) {
+                int mid = (lo + hi) / 2;
+
+                if(count_range(sa_l, sa_r, 0, mid + 1) >= k)
+                    hi = mid;
+                else
+                    lo = mid + 1;
+            }
+
+            return lo;
+        }
+
+        // k-th occurrence position of pattern, 1-indexed. O(|p|log n+log^2 n)
+        int kth_occurrence(const string&pattern, int k) const {
+            auto [l,r] = suf->pattern_range(pattern);
+            return kth_position(l, r, k);
+        }
+
+        // k-th occurrence position of represented substring. O(log^2 n)
+        int kth_substring_occurrence(int l, int r, int k) const {
+            auto [sa_l,sa_r] = suf->substring_range(l, r);
+            return kth_position(sa_l, sa_r, k);
+        }
+    };
+};
+
+void solve() {
+    string s;
+    cin >> s;
+
+    SuffixArray sa(s);
+
+    cout << "suffix array:";
+    for(int x:sa.sa)
+        cout << " " << x;
+    cout << '\n';
+
+    cout << "lcp:";
+    for(int x:sa.lcp)
+        cout << " " << x;
+    cout << '\n';
+
+    cout << "distinct substrings: " << sa.count_distinct_substrings() << '\n';
+    cout << "total distinct length: " << sa.total_length_distinct_substrings() << '\n';
+
+    auto [repeat_pos,repeat_len] = sa.longest_repeated_substring();
+    cout << "longest repeat: ";
+    cout << (repeat_pos == -1 ? string() : s.substr(repeat_pos, repeat_len)) << '\n';
+
+    int q;
+    cin >> q;
+
+    while(q--) {
+        string pattern;
+        cin >> pattern;
+
+        cout << "contains: " << sa.contains(pattern) << '\n';
+        cout << "occurrences: " << sa.count_occurrences(pattern) << '\n';
+    }
+}
