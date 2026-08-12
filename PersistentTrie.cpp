@@ -1,5 +1,42 @@
+// PERSISTENT BINARY TRIE -- C++17
+// B = configured number of bits, N = inserted values.
+//
+// # Build/rebuild from N values                 O(old nodes + N*B)
+// # Nodes / space                               O(N*B), B+1 new nodes per insert
+// # constructor / max_value / size              O(1)
+// # reserve                                      O(current nodes) worst case
+// # version_root / pop_version                  O(1), pop does not free nodes
+// # clear                                        O(number of allocated nodes)
+// # clone / count_nodes / count                  O(1)
+// # insert_node / insert                         O(B)
+// # count_equal / contains                       O(B)
+// # count_less / count_less_equal                O(B)
+// # count_greater / count_greater_equal          O(B)
+// # count_between                                O(B)
+// # kth_smallest / kth_largest                   O(B)
+// # get_min / get_max                            O(B)
+// # predecessor / floor_value                    O(B)
+// # lower_bound_value / successor                O(B)
+// # max_xor / min_xor                            O(B)
+// # max_xor_element / min_xor_element            O(B)
+// # max_xor_with_element / min_xor_with_element  O(B)
+// # count_xor_less / count_xor_less_equal        O(B)
+// # count_xor_greater / count_xor_greater_equal  O(B)
+// # count_xor_between                            O(B)
+// # kth_xor / kth_xor_element                    O(B)
+// # kth_largest_xor / kth_largest_xor_element    O(B)
+// # path_count / path_child_count                O(1)
+// # path_count_equal                             O(B)
+// # path_kth_smallest / path_kth_largest         O(B)
+// # path_count_xor_less                          O(B)
+// # path_max_xor / path_min_xor                  O(B)
+// # maximum_subarray_xor                         O(N*B), O(N*B) extra space
+// # count_subarrays_xor_less                     O(N*B), O(N*B) extra space
+// # maximum_pair_xor                             O(N*B), O(N*B) extra space
+// # count_pairs_xor_less                         O(N*B), O(N*B) extra space
+
 /*
-PERSISTENT BINARY TRIE -- C++17
+PERSISTENT BINARY TRIE RECOGNITION GUIDE
 
 HOW TO RECOGNIZE A PERSISTENT-TRIE PROBLEM
 
